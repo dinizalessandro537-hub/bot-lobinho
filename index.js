@@ -1,53 +1,52 @@
 import express from 'express';
 import { GoogleGenAI } from '@google/genai';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
+const port = process.env.PORT || 10000;
+
+// Inicializa a IA usando a chave de ambiente do Render
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 app.use(express.json());
 
-const ai = new GoogleGenAI();
-// Cole a sua URL do webhook do Google Chat aqui entre as aspas
-const GOOGLE_CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAH2vlCgU/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=fAwwNyD5vPZl9UNkqR-IHooGVdDWowSoSzyVqJUlf1E";
+// Serve a página web que criamos na pasta "public"
+app.use(express.static(path.join(__dirname, 'public')));
 
-app.post('/webhook-lobinho', async (req, res) => {
+// Rota de API que a página web chama para conversar com o LOBINHO
+app.post('/api/chat', async (req, res) => {
     try {
-        const messageText = req.body.message?.text || req.body.text || "";
-        const spaceType = req.body.space?.type || req.body.space_type;
-
-        // Se for mensagem em sala/grupo e não tiver a menção @LOBINHO, ignora
-        if (spaceType === 'ROOM' && !messageText.includes('@LOBINHO')) {
-            return res.status(200).send({ status: 'ignored' });
+        const userMessage = req.body.message;
+        if (!userMessage) {
+            return res.status(400).json({ error: 'Mensagem vazia' });
         }
 
-        // Limpa o texto tirando a menção @LOBINHO
-        const cleanPrompt = messageText.replace(/@LOBINHO/g, '').trim() || "Olá!";
-
-        // Chama o Gemini
+        // Chama o Gemini para gerar a resposta como o LOBINHO
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: cleanPrompt,
-            config: {
-                systemInstruction: "Seu nome é LOBINHO. Você é um assistente prestativo, amigável e direto em um chat de equipe."
-            }
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: "Você é o LOBINHO, um assistente virtual inteligente, amigável e prestativo. Responda de forma direta, clara e objetiva à seguinte mensagem: " + userMessage }
+                    ]
+                }
+            ]
         });
 
-        const botReply = response.text;
-
-        // Envia a resposta de volta para o sala usando a URL do Google Chat
-        if (GOOGLE_CHAT_WEBHOOK_URL) {
-            await fetch(GOOGLE_CHAT_WEBHOOK_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: botReply })
-            });
-        }
-
-        return res.status(200).send({ status: 'success', text: botReply });
+        const replyText = response.text || "Opa, não consegui processar direito.";
+        res.json({ reply: replyText });
 
     } catch (error) {
-        console.error("Erro no bot LOBINHO:", error);
-        return res.status(500).send({ error: "Erro interno." });
+        console.error("Erro no chat:", error);
+        res.status(500).json({ reply: "Eita, deu um erro interno aqui no meu servidor." });
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`LOBINHO rodando na porta ${PORT}`));
+app.listen(port, () => {
+    console.log(`LOBINHO rodando na porta ${port}`);
+});
